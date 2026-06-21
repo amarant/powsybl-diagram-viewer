@@ -9,25 +9,29 @@ import { ScatterplotLayer, type ScatterplotLayerProps } from '@deck.gl/layers';
 
 const TWO_PI = Math.PI * 2;
 
-type _ArcRadarLayerProps<DataT = unknown> = {
+type _ConstantGapArcRadarLayerProps<DataT = unknown> = {
     /** Inner radius accessor, expressed in the same units as ScatterplotLayer's getRadius accessor. */
     getInnerRadius: Accessor<DataT, number>;
-    /** Arc start angle in radians. Zero points east and positive values rotate counter-clockwise. */
+    /** Arc start gap center angle in radians. Zero points east and positive values rotate counter-clockwise. */
     getStartAngle: Accessor<DataT, number>;
-    /** Arc end angle in radians. Values lower than the start angle wrap through 2 PI. */
+    /** Arc end gap center angle in radians. Values lower than the start angle wrap through 2 PI. */
     getEndAngle: Accessor<DataT, number>;
+    /** Constant screen-space gap width around the start and end angles. */
+    getGapWidthPixels: Accessor<DataT, number>;
 };
-export type ArcRadarLayerProps<DataT = unknown> = _ArcRadarLayerProps<DataT> & ScatterplotLayerProps<DataT>;
+export type ConstantGapArcRadarLayerProps<DataT = unknown> = _ConstantGapArcRadarLayerProps<DataT> &
+    ScatterplotLayerProps<DataT>;
 
-const defaultProps: DefaultProps<ArcRadarLayerProps> = {
+const defaultProps: DefaultProps<ConstantGapArcRadarLayerProps> = {
     getInnerRadius: { type: 'accessor', value: 0 },
     getStartAngle: { type: 'accessor', value: 0 },
     getEndAngle: { type: 'accessor', value: TWO_PI },
+    getGapWidthPixels: { type: 'accessor', value: 0 },
 };
 
-const ARC_RADAR_LAYER_VERTEX_SHADER = `\
+const CONSTANT_GAP_ARC_RADAR_LAYER_VERTEX_SHADER = `\
 #version 300 es
-#define SHADER_NAME arc-radar-layer-vertex-shader
+#define SHADER_NAME constant-gap-arc-radar-layer-vertex-shader
 
 in vec3 positions;
 
@@ -42,6 +46,7 @@ in vec2 instancePixelOffset;
 in float instanceInnerRadius;
 in float instanceStartAngle;
 in float instanceEndAngle;
+in float instanceGapWidthPixels;
 
 out vec4 vFillColor;
 out vec4 vLineColor;
@@ -51,6 +56,7 @@ out float outerRadiusPixels;
 out float radarInnerRadiusPixels;
 out float radarStartAngle;
 out float radarEndAngle;
+out float radarGapHalfWidthPixels;
 
 void main(void) {
   geometry.worldPosition = instancePositions;
@@ -82,6 +88,7 @@ void main(void) {
   );
   radarStartAngle = instanceStartAngle;
   radarEndAngle = instanceEndAngle;
+  radarGapHalfWidthPixels = max(instanceGapWidthPixels, 0.0) * 0.5;
 
   if (scatterplot.billboard) {
     gl_Position = project_position_to_clipspace(instancePositions, instancePositions64Low, vec3(0.0), geometry.position);
@@ -105,9 +112,9 @@ void main(void) {
 }
 `;
 
-const ARC_RADAR_LAYER_FRAGMENT_SHADER = `\
+const CONSTANT_GAP_ARC_RADAR_LAYER_FRAGMENT_SHADER = `\
 #version 300 es
-#define SHADER_NAME arc-radar-layer-fragment-shader
+#define SHADER_NAME constant-gap-arc-radar-layer-fragment-shader
 
 precision highp float;
 
@@ -122,8 +129,14 @@ in float outerRadiusPixels;
 in float radarInnerRadiusPixels;
 in float radarStartAngle;
 in float radarEndAngle;
+in float radarGapHalfWidthPixels;
 
 out vec4 fragColor;
+
+float lineDistancePixels(vec2 pointPixels, float angle) {
+  vec2 direction = vec2(cos(angle), sin(angle));
+  return abs(direction.x * pointPixels.y - direction.y * pointPixels.x);
+}
 
 void main(void) {
   geometry.uv = unitPosition;
@@ -144,7 +157,19 @@ void main(void) {
     : max(step(normalizedStartAngle, angle), step(angle, normalizedEndAngle))
   );
 
-  if (inCircle == 0.0 || distToCenter < radarInnerRadiusPixels || inAngle == 0.0) {
+  vec2 pointPixels = unitPosition * outerRadiusPixels;
+  float startGapDistancePixels = lineDistancePixels(pointPixels, radarStartAngle);
+  float endGapDistancePixels = lineDistancePixels(pointPixels, radarEndAngle);
+  float inStartGap = step(startGapDistancePixels, radarGapHalfWidthPixels);
+  float inEndGap = step(endGapDistancePixels, radarGapHalfWidthPixels);
+
+  if (
+    inCircle == 0.0 ||
+    distToCenter < radarInnerRadiusPixels ||
+    inAngle == 0.0 ||
+    inStartGap > 0.0 ||
+    inEndGap > 0.0
+  ) {
     discard;
   }
 
@@ -172,7 +197,7 @@ void main(void) {
 }
 `;
 
-const ARC_RADAR_LAYER_SHADER_SOURCE = `\
+const CONSTANT_GAP_ARC_RADAR_LAYER_SHADER_SOURCE = `\
 // Main shaders
 
 const PI: f32 = radians(180.0);
@@ -205,6 +230,7 @@ struct ConstantAttributeUniforms {
  instanceInnerRadius: f32,
  instanceStartAngle: f32,
  instanceEndAngle: f32,
+ instanceGapWidthPixels: f32,
 
  instancePositionsConstant: i32,
  instancePositions64LowConstant: i32,
@@ -216,7 +242,8 @@ struct ConstantAttributeUniforms {
  instancePixelOffsetConstant: i32,
  instanceInnerRadiusConstant: i32,
  instanceStartAngleConstant: i32,
- instanceEndAngleConstant: i32
+ instanceEndAngleConstant: i32,
+ instanceGapWidthPixelsConstant: i32
 };
 
 @group(0) @binding(0) var<uniform> scatterplot: ScatterplotUniforms;
@@ -232,7 +259,8 @@ struct ConstantAttributes {
   instancePixelOffset: vec2<f32>,
   instanceInnerRadius: f32,
   instanceStartAngle: f32,
-  instanceEndAngle: f32
+  instanceEndAngle: f32,
+  instanceGapWidthPixels: f32
 };
 
 const constants = ConstantAttributes(
@@ -246,7 +274,8 @@ const constants = ConstantAttributes(
   vec2<f32>(0.0),
   0.0,
   0.0,
-  TWO_PI
+  TWO_PI,
+  0.0
 );
 
 struct Attributes {
@@ -263,7 +292,8 @@ struct Attributes {
   @location(8) instancePixelOffset: vec2<f32>,
   @location(9) instanceInnerRadius: f32,
   @location(10) instanceStartAngle: f32,
-  @location(11) instanceEndAngle: f32
+  @location(11) instanceEndAngle: f32,
+  @location(12) instanceGapWidthPixels: f32
 };
 
 struct Varyings {
@@ -276,7 +306,8 @@ struct Varyings {
   @location(5) radarInnerRadiusPixels: f32,
   @location(6) radarStartAngle: f32,
   @location(7) radarEndAngle: f32,
-  @location(8) pickingColor: vec3<f32>,
+  @location(8) radarGapHalfWidthPixels: f32,
+  @location(9) pickingColor: vec3<f32>,
 };
 
 @vertex
@@ -316,6 +347,7 @@ fn vertexMain(attributes: Attributes) -> Varyings {
   );
   varyings.radarStartAngle = attributes.instanceStartAngle;
   varyings.radarEndAngle = attributes.instanceEndAngle;
+  varyings.radarGapHalfWidthPixels = max(attributes.instanceGapWidthPixels, 0.0) * 0.5;
 
   if (scatterplot.billboard != 0) {
     varyings.position = project_position_to_clipspace(attributes.instancePositions, attributes.instancePositions64Low, vec3<f32>(0.0));
@@ -334,6 +366,11 @@ fn vertexMain(attributes: Attributes) -> Varyings {
   varyings.pickingColor = attributes.instancePickingColors;
 
   return varyings;
+}
+
+fn lineDistancePixels(pointPixels: vec2<f32>, angle: f32) -> f32 {
+  let direction = vec2<f32>(cos(angle), sin(angle));
+  return abs(direction.x * pointPixels.y - direction.y * pointPixels.x);
 }
 
 @fragment
@@ -360,7 +397,19 @@ fn fragmentMain(varyings: Varyings) -> @location(0) vec4<f32> {
     abs(varyings.radarEndAngle - varyings.radarStartAngle) >= TWO_PI - 0.000001
   );
 
-  if (inCircle == 0.0 || distToCenter < varyings.radarInnerRadiusPixels || inAngle == 0.0) {
+  let pointPixels = varyings.unitPosition * varyings.outerRadiusPixels;
+  let startGapDistancePixels = lineDistancePixels(pointPixels, varyings.radarStartAngle);
+  let endGapDistancePixels = lineDistancePixels(pointPixels, varyings.radarEndAngle);
+  let inStartGap = step(startGapDistancePixels, varyings.radarGapHalfWidthPixels);
+  let inEndGap = step(endGapDistancePixels, varyings.radarGapHalfWidthPixels);
+
+  if (
+    inCircle == 0.0 ||
+    distToCenter < varyings.radarInnerRadiusPixels ||
+    inAngle == 0.0 ||
+    inStartGap > 0.0 ||
+    inEndGap > 0.0
+  ) {
     discard;
   }
 
@@ -420,17 +469,17 @@ fn fragmentMain(varyings: Varyings) -> @location(0) vec4<f32> {
 `;
 
 /**
- * A scatterplot-derived layer that draws annular sectors.
+ * A scatterplot-derived layer that draws annular sectors separated by constant screen-space gaps.
  *
  * The outer radius is the standard ScatterplotLayer getRadius accessor; the inner radius is getInnerRadius.
- * Angles are in radians, with 0 pointing east.
+ * Start and end angles define the center lines of the gaps around each sector.
  */
-export default class ArcRadarLayer<DataT = unknown> extends ScatterplotLayer<
+export default class ConstantGapArcRadarLayer<DataT = unknown> extends ScatterplotLayer<
     DataT,
-    Required<_ArcRadarLayerProps<DataT>>
+    Required<_ConstantGapArcRadarLayerProps<DataT>>
 > {
     // noinspection JSUnusedGlobalSymbols -- it's dynamically get by deck.gl
-    static readonly layerName = 'ArcRadarLayer';
+    static readonly layerName = 'ConstantGapArcRadarLayer';
     // noinspection JSUnusedGlobalSymbols -- it's dynamically get by deck.gl
     static readonly defaultProps = defaultProps;
 
@@ -438,9 +487,9 @@ export default class ArcRadarLayer<DataT = unknown> extends ScatterplotLayer<
         const shaders = super.getShaders();
         return {
             ...shaders,
-            vs: ARC_RADAR_LAYER_VERTEX_SHADER,
-            fs: ARC_RADAR_LAYER_FRAGMENT_SHADER,
-            source: ARC_RADAR_LAYER_SHADER_SOURCE,
+            vs: CONSTANT_GAP_ARC_RADAR_LAYER_VERTEX_SHADER,
+            fs: CONSTANT_GAP_ARC_RADAR_LAYER_FRAGMENT_SHADER,
+            source: CONSTANT_GAP_ARC_RADAR_LAYER_SHADER_SOURCE,
         };
     }
 
@@ -467,6 +516,13 @@ export default class ArcRadarLayer<DataT = unknown> extends ScatterplotLayer<
                 accessor: 'getEndAngle',
                 type: 'float32',
                 defaultValue: TWO_PI,
+            },
+            instanceGapWidthPixels: {
+                size: 1,
+                transition: true,
+                accessor: 'getGapWidthPixels',
+                type: 'float32',
+                defaultValue: 0,
             },
         });
     }
