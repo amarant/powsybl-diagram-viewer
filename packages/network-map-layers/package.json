@@ -39,6 +39,7 @@
         "lint:format:fix": "prettier --cache --write --ignore-path ../../.gitignore ."
     },
     "dependencies": {
+        "@powsybl/network-viewer-core": "^3.6.0-dev.0",
         "cheap-ruler": "^4.0.0",
         "geolib": "^3.3.4",
         "type-fest": "^5.5.0"

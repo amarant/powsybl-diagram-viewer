@@ -23,6 +23,7 @@ export {
     isMapSubstation,
 } from './equipment-types';
 export { GeoData, type GeoDataEquipment, type GeoDataLine, type GeoDataSubstation } from './network/geo-data';
+export { NetworkAreaDiagramLayer, type NetworkAreaDiagramLayerProps } from './network-area-diagram-layer';
 export { default as ArcRadarLayer, type ArcRadarLayerProps } from './network/layers/arc-radar-layer';
 export {
     default as ConstantGapArcRadarLayer,

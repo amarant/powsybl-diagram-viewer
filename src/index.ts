@@ -24,6 +24,33 @@ export {
     type OnBendLineCallbackType,
     type NadViewerParametersOptions,
     type NadViewerParameters,
+    getNadPath,
+    getNadPosition,
+    hasNadCoordinate,
+    isNadDeckData,
+    type NadBusNode,
+    type NadComponent,
+    type NadComponentType,
+    type NadCoordinateMode,
+    type NadDeckData,
+    type NadDeckLayoutMode,
+    type NadEdge,
+    type NadEdgeInfo,
+    type NadGeometry,
+    type NadHalfEdge,
+    type NadInjection,
+    type NadLonLat,
+    type NadNode,
+    type NadPickingData,
+    type NadPoint,
+    type NadPosition,
+    type NadProjection,
+    type NadRenderCoordinate,
+    type NadRenderStyle,
+    type NadShape,
+    type NadShapeType,
+    type NadTextNode,
+    type NadViewBox,
     LayoutParameters,
     SvgParameters,
     SingleLineDiagramViewer,
@@ -44,18 +71,27 @@ export {
     LineFlowColorMode,
     LineFlowMode,
     MapEquipments,
+    NetworkAreaDiagramLayer,
     type GeoDataEquipment,
     type GeoDataLine,
     type GeoDataSubstation,
+    type NetworkAreaDiagramLayerProps,
 } from '@powsybl/network-map-layers';
 
 export { default as NetworkMap } from './components/network-map-viewer/network/network-map';
+export { default as NetworkAreaDiagramDeck } from './components/network-area-diagram-deck/network-area-diagram-deck';
 
 export {
     type MenuClickFunction,
     type NetworkMapProps,
     type NetworkMapRef,
 } from './components/network-map-viewer/network/network-map';
+export {
+    type NetworkAreaDiagramDeckMapLibrary,
+    type NetworkAreaDiagramDeckProps,
+    type NetworkAreaDiagramDeckRef,
+    type NetworkAreaDiagramDeckRenderMode,
+} from './components/network-area-diagram-deck/network-area-diagram-deck';
 
 export { DRAW_MODES } from './components/network-map-viewer/network/draw-control';
 

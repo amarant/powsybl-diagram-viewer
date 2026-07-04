@@ -1,7 +1,11 @@
 {
     "extends": "../../tsconfig.base.json",
     "compilerOptions": {
-        "outDir": "./dist"
+        "baseUrl": ".",
+        "outDir": "./dist",
+        "paths": {
+            "@powsybl/network-viewer-core": ["../network-viewer-core/src/"]
+        }
     },
     "include": ["src"]
 }
